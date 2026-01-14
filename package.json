@@ -1,0 +1,14 @@
+{
+  "name": "raknago-firebase-setup",
+  "version": "1.0.0",
+  "description": "Firebase setup script for RaknaGo",
+  "main": "setup_firebase.js",
+  "scripts": {
+    "setup": "node setup_firebase.js",
+    "make-admin": "node make_admin.js"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.0.0"
+  }
+}
+

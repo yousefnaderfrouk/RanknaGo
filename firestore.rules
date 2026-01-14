@@ -1,0 +1,430 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper function to check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // Helper function to check if user owns the document
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    // Helper function to check if user is admin
+    // Note: This function can read the user's own document because users can read their own data
+    function isAdmin() {
+      return isAuthenticated() 
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+    
+    // Users collection
+    match /users/{userId} {
+      // Users can read their own data, admins can read all
+      // IMPORTANT: Users must be able to read their own data for isAdmin() to work
+      // This allows isAdmin() to read the user's own document to check role
+      allow get: if isOwner(userId);
+      
+      // Allow querying users collection for password reset
+      // This allows unauthenticated users to search for their account by email
+      // Security: Only allows queries with limit of 1 to prevent bulk data access
+      // Admins can list all users
+      allow list: if isAdmin() || (request.query.limit != null && request.query.limit <= 1);
+      
+      // Users can create their own document
+      // Must include required fields: email, name, createdAt, updatedAt, isEmailVerified
+      allow create: if isAuthenticated() 
+        && request.auth.uid == userId
+        && request.resource.data.keys().hasAll(['email', 'name', 'createdAt', 'updatedAt', 'isEmailVerified'])
+        && request.resource.data.email is string
+        && request.resource.data.name is string
+        && request.resource.data.isEmailVerified is bool;
+      
+      // Users can update their own data, admins can update any user
+      // Also allow updating isEmailVerified for email verification (unauthenticated from web page)
+      // Can update: name, gender, dateOfBirth, phoneNumber, photoURL, profileCompleted, isEmailVerified, role,
+      //             streetAddress, country, biometricID, faceID, smsAuthenticator, googleAuthenticator, language
+      allow update: if (isOwner(userId)
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['email', 'createdAt']))
+        && (request.resource.data.updatedAt is timestamp))
+        || (isAdmin() && (request.resource.data.updatedAt is timestamp))
+        || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isEmailVerified', 'updatedAt']) &&
+            request.resource.data.isEmailVerified == true &&
+            (request.resource.data.updatedAt is timestamp || request.resource.data.updatedAt == null));
+      
+      // Only admins can delete users
+      allow delete: if isAdmin();
+    }
+    
+    // Parking spots collection
+    match /parking_spots/{spotId} {
+      // Anyone can read parking spots
+      allow read: if true;
+      
+      // Only authenticated users with completed profile or admins can create spots
+      allow create: if isAdmin() || (isAuthenticated() 
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.profileCompleted == true);
+      
+      // Allow updates for:
+      // 1. Admins can update everything
+      // 2. Authenticated users can update availableSpots (for booking/cancellation)
+      // 3. Authenticated users with completed profile can update their own spots
+      allow update: if isAdmin() || 
+        (isAuthenticated() && (
+          // Allow updating only availableSpots field (for booking/cancellation)
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['availableSpots', 'updatedAt']) ||
+          // Allow full update if user has completed profile
+          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.profileCompleted == true)
+        ));
+      
+      // Only authenticated users or admins can delete spots
+      allow delete: if isAdmin() || isAuthenticated();
+    }
+    
+    // Reservations collection
+    match /reservations/{reservationId} {
+      // Admins can read all reservations, users can read their own
+      // Also allow reading if userId is missing (for old bookings)
+      allow get: if isAdmin() || (isAuthenticated() && (
+        resource.data.userId == request.auth.uid ||
+        !('userId' in resource.data) ||
+        resource.data.userId == null ||
+        resource.data.userId == ''
+      ));
+      
+      // Admins can list all reservations
+      // Users can query their own reservations using where('userId', isEqualTo: user.uid)
+      // Note: Firestore queries with where() use 'list' permission
+      // We allow authenticated users to list, but the query must filter by userId
+      allow list: if isAdmin() || isAuthenticated();
+      
+      // Users with completed profile can create their own reservations, admins can create any
+      // Admins can create bookings with createdBy field
+      allow create: if isAdmin() || (isAuthenticated() 
+        && request.resource.data.userId == request.auth.uid
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.profileCompleted == true);
+      
+      // Users can update their own reservations, admins can update any
+      // Allow update if userId matches, or if userId is missing/null (for old bookings)
+      // In the latter case, userId will be added during the update
+      // Also allow write operation (set with merge) for adding userId to old bookings
+      allow update, write: if isAdmin() || (isAuthenticated() && (
+        // Case 1: userId exists and matches current user
+        (('userId' in resource.data) && resource.data.userId == request.auth.uid) ||
+        // Case 2: userId is missing or null (old bookings) - allow if adding userId that matches current user
+        ((!('userId' in resource.data) || resource.data.userId == null || resource.data.userId == '') &&
+         'userId' in request.resource.data &&
+         request.resource.data.userId == request.auth.uid)
+      ));
+      
+      // Users can delete their own reservations, admins can delete any
+      allow delete: if isAdmin() || (isAuthenticated() && 
+        resource.data.userId == request.auth.uid);
+    }
+    
+    // App info collection (for dynamic content in About Screen)
+    match /app_info/{docId} {
+      // Anyone can read app info
+      allow read: if true;
+      
+      // Only admins can create/update/delete app info
+      allow create, update, delete: if isAdmin();
+    }
+    
+    // Feedback collection (for user feedback in About Screen)
+    match /feedback/{feedbackId} {
+      // Users can read their own feedback, admins can read all
+      allow read: if isAdmin() || (isAuthenticated() && 
+        resource.data.userId == request.auth.uid);
+      
+      // Authenticated users can create their own feedback
+      allow create: if isAuthenticated() 
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.createdAt is timestamp;
+      
+      // Only admins can update/delete feedback
+      allow update, delete: if isAdmin();
+    }
+    
+    // Ratings collection (for app ratings in About Screen)
+    match /ratings/{ratingId} {
+      // Users can read their own ratings, admins can read all
+      allow read: if isAdmin() || (isAuthenticated() && 
+        resource.data.userId == request.auth.uid);
+      
+      // Authenticated users can create their own ratings
+      allow create: if isAuthenticated() 
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.createdAt is timestamp;
+      
+      // Users can update their own ratings, admins can update any
+      allow update: if isAdmin() || (isAuthenticated() && 
+        resource.data.userId == request.auth.uid);
+      
+      // Only admins can delete ratings
+      allow delete: if isAdmin();
+    }
+    
+    // Contact messages collection (for contact us in Help Center)
+    match /contact_messages/{messageId} {
+      // Users can read their own messages, admins can read all
+      allow read: if isAdmin() || (isAuthenticated() && 
+        resource.data.userId == request.auth.uid);
+      
+      // Authenticated users can create their own messages
+      allow create: if isAuthenticated() 
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.createdAt is timestamp;
+      
+      // Only admins can update/delete messages
+      allow update, delete: if isAdmin();
+    }
+    
+    // Settings collection (for app settings managed by admin)
+    match /settings/{settingId} {
+      // Anyone can read settings
+      allow read: if true;
+      
+      // Only admins can create/update/delete settings
+      allow create, update, delete: if isAdmin();
+    }
+    
+    // System logs collection (for admin activity logs)
+    match /system_logs/{logId} {
+      // Only admins can read logs
+      allow read: if isAdmin();
+      
+      // Only admins can create logs
+      allow create: if isAdmin() 
+        && request.resource.data.timestamp is timestamp;
+      
+      // Only admins can delete logs
+      allow delete: if isAdmin();
+    }
+    
+    // Notifications collection (for admin notifications)
+    match /notifications/{notificationId} {
+      // Admins can read all notifications
+      // Users can read notifications sent to them or to all
+      allow get: if isAdmin() || (isAuthenticated() && 
+        (resource.data.recipientType == 'all' || 
+         resource.data.recipientId == request.auth.uid));
+      
+      // Admins can list all notifications, users can only list their own or 'all' type
+      allow list: if isAdmin() || isAuthenticated();
+      
+      // Only admins can create notifications
+      allow create: if isAdmin() 
+        && request.resource.data.keys().hasAll(['title', 'message', 'type', 'recipientType', 'sentBy', 'sentAt'])
+        && request.resource.data.title is string
+        && request.resource.data.message is string
+        && request.resource.data.type is string
+        && request.resource.data.recipientType is string
+        && request.resource.data.sentBy is string
+        && (request.resource.data.sentAt == null || request.resource.data.sentAt is timestamp)
+        && (request.resource.data.createdAt == null || request.resource.data.createdAt is timestamp)
+        && (request.resource.data.updatedAt == null || request.resource.data.updatedAt is timestamp);
+      
+      // Users can update readBy array (mark as read), admins can update any field
+      allow update: if isAdmin() || (isAuthenticated() && 
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readBy', 'updatedAt'])
+        && (request.resource.data.updatedAt == null || request.resource.data.updatedAt is timestamp));
+      
+      // Only admins can delete notifications
+      allow delete: if isAdmin();
+    }
+    
+    // Email OTPs collection (for two-factor authentication)
+    match /email_otps/{userId} {
+      // Users can read their own OTP
+      allow read: if isOwner(userId);
+      
+      // Users can create their own OTP
+      // Allow create if authenticated and the userId matches
+      // Make createdAt and expiresAt optional to handle different timestamp formats
+      allow create: if isAuthenticated() 
+        && request.auth.uid == userId
+        && request.resource.data.keys().hasAll(['otp', 'email', 'used'])
+        && request.resource.data.otp is string
+        && request.resource.data.email is string
+        && request.resource.data.used is bool
+        && (request.resource.data.expiresAt == null || request.resource.data.expiresAt is timestamp)
+        && (request.resource.data.createdAt == null || request.resource.data.createdAt is timestamp);
+      
+      // Users can update their own OTP (to mark as used)
+      // Allow update if user owns the document and only updating the 'used' field
+      allow update: if isOwner(userId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['used'])
+        && request.resource.data.used is bool;
+      
+      // Users can delete their own OTP
+      allow delete: if isOwner(userId);
+    }
+    
+    // Saved spots collection (for bookmarks)
+    match /saved_spots/{bookmarkId} {
+      // Users can read their own bookmarks
+      allow read: if isAuthenticated() 
+        && resource.data.userId == request.auth.uid;
+      
+      // Users can create their own bookmarks
+      allow create: if isAuthenticated() 
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.spotId is string
+        && request.resource.data.createdAt is timestamp;
+      
+      // Users can delete their own bookmarks
+      allow delete: if isAuthenticated() 
+        && resource.data.userId == request.auth.uid;
+    }
+    
+    // Password resets collection (for password reset via SMTP)
+    match /password_resets/{userId} {
+      // Anyone can read password reset document (needed for web page verification)
+      // But only if the token matches (this is checked in the web page)
+      allow read: if true;
+      
+      // Allow creating password reset for any user (needed for unauthenticated password reset)
+      // Security: Only allows creating with required fields
+      allow create: if request.resource.data.keys().hasAll(['token', 'email', 'createdAt', 'expiresAt', 'used'])
+        && request.resource.data.token is string
+        && request.resource.data.email is string
+        && request.resource.data.used is bool
+        && (request.resource.data.expiresAt == null || request.resource.data.expiresAt is timestamp)
+        && (request.resource.data.createdAt == null || request.resource.data.createdAt is timestamp);
+      
+      // Allow update to mark as used and store new password temporarily
+      // This is needed for the web page to update the password
+      allow update: if true; // Allow update for web page (token verification is done in the page)
+      
+      // Users can delete their own password reset
+      allow delete: if isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    // Email verifications collection (for email verification via SMTP)
+    match /email_verifications/{userId} {
+      // Allow reading verification document for email verification page (unauthenticated)
+      // This is needed for the web page to verify the token
+      allow read: if isOwner(userId) || isAdmin() || true;
+      
+      // Users can create their own verification document when signing up
+      allow create: if isAuthenticated() 
+        && request.auth.uid == userId
+        && request.resource.data.keys().hasAll(['token', 'email', 'createdAt', 'expiresAt', 'verified'])
+        && request.resource.data.token is string
+        && request.resource.data.email is string
+        && request.resource.data.verified is bool
+        && (request.resource.data.expiresAt == null || request.resource.data.expiresAt is timestamp)
+        && (request.resource.data.createdAt == null || request.resource.data.createdAt is timestamp);
+      
+      // Allow updating verification document to mark as verified (for web page)
+      // Security: Only allow updating verified field
+      allow update: if isOwner(userId) || 
+                     (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['verified', 'verifiedAt']) &&
+                      request.resource.data.verified == true);
+      
+      // Users can delete their own verification document
+      allow delete: if isOwner(userId);
+    }
+    
+    // Payment methods collection (for saved payment cards)
+    match /payment_methods/{userId} {
+      // Users can read their own payment methods document
+      allow read: if isOwner(userId) || isAdmin();
+      
+      // Users can create their own payment methods document
+      allow create: if isAuthenticated() && request.auth.uid == userId;
+      
+      // Users can update their own payment methods document
+      allow update: if isOwner(userId) || isAdmin();
+      
+      // Users can delete their own payment methods document
+      allow delete: if isOwner(userId) || isAdmin();
+      
+      // Cards subcollection
+      match /cards/{cardId} {
+        // Users can read their own payment methods
+        allow read: if isOwner(userId) || isAdmin();
+        
+        // Users can create their own payment methods
+        allow create: if isAuthenticated() 
+          && request.auth.uid == userId
+          && request.resource.data.keys().hasAll(['cardHolderName', 'cardNumber', 'expiryDate', 'lastFourDigits', 'cardType', 'isDefault', 'createdAt'])
+          && request.resource.data.cardHolderName is string
+          && request.resource.data.cardNumber is string
+          && request.resource.data.expiryDate is string
+          && request.resource.data.lastFourDigits is string
+          && request.resource.data.cardType is string
+          && request.resource.data.isDefault is bool
+          && (request.resource.data.createdAt == null || request.resource.data.createdAt is timestamp);
+      
+        // Users can update their own payment methods
+        allow update: if isOwner(userId) || isAdmin();
+        
+        // Users can delete their own payment methods
+        allow delete: if isOwner(userId) || isAdmin();
+      }
+    }
+    
+    // Wallets collection (for user wallet balance)
+    match /wallets/{userId} {
+      // Users can read their own wallet, admins can read all
+      allow read: if isOwner(userId) || isAdmin();
+      
+      // Users can create their own wallet, admins can create any wallet
+      // Allow create for authenticated users (their own wallet) or admins (any wallet)
+      allow create: if isAuthenticated() 
+        && (request.auth.uid == userId || isAdmin());
+      
+      // Users can update their own wallet, admins can update any wallet
+      // Allow update for users (their own wallet) or admins (any wallet)
+      allow update: if isAuthenticated() 
+        && (request.auth.uid == userId || isAdmin());
+      
+      // Users can delete their own wallet, admins can delete any wallet
+      allow delete: if isOwner(userId) || isAdmin();
+    }
+    
+    // Transactions collection (for user transactions)
+    match /transactions/{userId}/user_transactions/{transactionId} {
+      // Users can read their own transactions, admins can read all
+      allow read: if isOwner(userId) || isAdmin();
+      
+      // Users can create their own transactions, admins can create transactions for any user
+      // Make fields flexible - only type and amount are required
+      // status is optional (only for some transaction types like wallet top-ups)
+      allow create: if isAuthenticated() 
+        && (request.auth.uid == userId || isAdmin())
+        && request.resource.data.type is string
+        && request.resource.data.amount is number;
+      
+      // Users can update their own transactions, admins can update any transaction
+      allow update: if isAuthenticated() 
+        && (request.auth.uid == userId || isAdmin());
+      
+      // Users can delete their own transactions, admins can delete any transaction
+      allow delete: if isOwner(userId) || isAdmin();
+    }
+    
+    // Devices collection (user devices tracking)
+    match /devices/{userId}/user_devices/{deviceId} {
+      // Users can read their own devices
+      allow read: if isAuthenticated() && request.auth.uid == userId;
+      
+      // Users can create/update their own devices
+      allow create, update: if isAuthenticated() 
+        && request.auth.uid == userId
+        && request.resource.data.deviceId is string
+        && request.resource.data.deviceName is string
+        && request.resource.data.deviceType is string;
+      
+      // Users can delete their own devices
+      allow delete: if isAuthenticated() && request.auth.uid == userId;
+    }
+  }
+}

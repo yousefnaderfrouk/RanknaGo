@@ -1,0 +1,1092 @@
+import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:intl/intl.dart';
+
+class ManageParkingSpotsScreen extends StatefulWidget {
+  const ManageParkingSpotsScreen({super.key});
+
+  @override
+  State<ManageParkingSpotsScreen> createState() =>
+      _ManageParkingSpotsScreenState();
+}
+
+class _ManageParkingSpotsScreenState extends State<ManageParkingSpotsScreen> {
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  String _searchQuery = '';
+  String _filterStatus = 'All';
+  bool _isLoading = true;
+  List<Map<String, dynamic>> _parkingSpots = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadParkingSpots();
+  }
+
+  Future<void> _loadParkingSpots() async {
+    try {
+      final spotsSnapshot = await _firestore.collection('parking_spots').get();
+      final List<Map<String, dynamic>> spots = [];
+
+      for (var doc in spotsSnapshot.docs) {
+        final data = doc.data();
+        final createdAt = (data['createdAt'] as Timestamp?)?.toDate();
+        
+        spots.add({
+          'id': doc.id,
+          'name': data['name'] ?? 'Unknown',
+          'description': data['description'] ?? '',
+          'location': data['location'] ?? {'lat': 0.0, 'lng': 0.0},
+          'address': data['address'] ?? '',
+          'pricePerHour': (data['pricePerHour'] ?? 0.0).toDouble(),
+          'hasEVCharging': data['hasEVCharging'] ?? false,
+          'evChargingPrice': (data['evChargingPrice'] ?? 0.0).toDouble(),
+          'totalSpots': data['totalSpots'] ?? 0,
+          'availableSpots': data['availableSpots'] ?? 0,
+          'isActive': data['isActive'] ?? true,
+          'createdAt': createdAt != null 
+              ? DateFormat('yyyy-MM-dd').format(createdAt)
+              : 'N/A',
+        });
+      }
+
+      setState(() {
+        _parkingSpots = spots;
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error loading parking spots: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+    {
+      'id': '1',
+      'name': 'City Center Parking',
+      'description': 'Premium parking in downtown area',
+      'location': {'lat': 30.0444, 'lng': 31. 2357},
+      'address': 'Downtown Cairo, Egypt',
+      'pricePerHour': 15.0,
+      'hasEVCharging': true,
+      'evChargingPrice': 5.0,
+      'totalSpots': 45,
+      'availableSpots': 12,
+      'isActive': true,
+      'createdAt': '2024-01-15',
+    },
+    {
+      'id': '2',
+      'name': 'Mall Parking',
+      'description': 'Large parking area near shopping mall',
+      'location': {'lat': 30.0500, 'lng': 31. 2400},
+      'address': 'New Cairo, Egypt',
+      'pricePerHour': 20. 0,
+      'hasEVCharging': true,
+      'evChargingPrice': 7.0,
+      'totalSpots': 120,
+      'availableSpots': 35,
+      'isActive': true,
+      'createdAt': '2024-01-10',
+    },
+    {
+      'id': '3',
+      'name': 'Street Parking',
+      'description': 'Budget-friendly street parking',
+      'location': {'lat': 30.0400, 'lng': 31. 2300},
+      'address': 'Heliopolis, Egypt',
+      'pricePerHour': 10.0,
+      'hasEVCharging': false,
+      'evChargingPrice': 0.0,
+      'totalSpots': 20,
+      'availableSpots': 0,
+      'isActive': false,
+      'createdAt': '2024-01-05',
+    },
+  ];
+
+  List<Map<String, dynamic>> get _filteredSpots {
+    return _parkingSpots. where((spot) {
+      final matchesSearch = spot['name']
+              .toString()
+              .toLowerCase()
+              .contains(_searchQuery.toLowerCase()) ||
+          spot['address']
+              .toString()
+              .toLowerCase()
+              .contains(_searchQuery.toLowerCase());
+
+      final matchesStatus = _filterStatus == 'All' ||
+          (_filterStatus == 'Active' && spot['isActive']) ||
+          (_filterStatus == 'Inactive' && !spot['isActive']);
+
+      return matchesSearch && matchesStatus;
+    }).toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.grey[50],
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF1E88E5),
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: const Text(
+          'Manage Parking Spots',
+          style: TextStyle(color: Colors.white),
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.add_rounded, color: Colors.white),
+            onPressed: _showAddSpotDialog,
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          // Search and Filter
+          Container(
+            padding: const EdgeInsets.all(16),
+            color: Colors.white,
+            child: Column(
+              children: [
+                Container(
+                  decoration: BoxDecoration(
+                    color: Colors.grey[100],
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: TextField(
+                    onChanged: (value) {
+                      setState(() {
+                        _searchQuery = value;
+                      });
+                    },
+                    decoration: const InputDecoration(
+                      hintText: 'Search parking spots...',
+                      prefixIcon: Icon(Icons.search, color: Color(0xFF1E88E5)),
+                      border: InputBorder.none,
+                      contentPadding:
+                          EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    _buildFilterChip('All'),
+                    const SizedBox(width: 8),
+                    _buildFilterChip('Active'),
+                    const SizedBox(width: 8),
+                    _buildFilterChip('Inactive'),
+                  ],
+                ),
+              ],
+            ),
+          ),
+
+          // Spots List
+          Expanded(
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : _filteredSpots.isEmpty
+                    ?  Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.local_parking_rounded,
+                                size: 80, color: Colors.grey[300]),
+                            const SizedBox(height: 16),
+                            Text(
+                              'No parking spots found',
+                              style: TextStyle(fontSize: 16, color: Colors. grey[600]),
+                            ),
+                          ],
+                        ),
+                      )
+                    : ListView.builder(
+                        padding: const EdgeInsets.all(16),
+                        itemCount: _filteredSpots.length,
+                        itemBuilder: (context, index) {
+                          return _buildSpotCard(_filteredSpots[index]);
+                        },
+                      ),
+          ),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton. extended(
+        onPressed: _showAddSpotDialog,
+        backgroundColor: const Color(0xFF1E88E5),
+        icon: const Icon(Icons.add_rounded),
+        label: const Text('Add Spot'),
+      ),
+    );
+  }
+
+  Widget _buildFilterChip(String label) {
+    final isSelected = _filterStatus == label;
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _filterStatus = label;
+        });
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected ?  const Color(0xFF1E88E5) : Colors.grey[200],
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: isSelected ? Colors.white : Colors.grey[700],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSpotCard(Map<String, dynamic> spot) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black. withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 50,
+                      height: 50,
+                      decoration: BoxDecoration(
+                        color: spot['isActive']
+                            ? const Color(0xFF1E88E5). withOpacity(0.1)
+                            : Colors.grey[200],
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(
+                        Icons.local_parking_rounded,
+                        color: spot['isActive']
+                            ? const Color(0xFF1E88E5)
+                            : Colors. grey[500],
+                        size: 28,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  spot['name'],
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF212121),
+                                  ),
+                                ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: spot['isActive']
+                                      ? Colors.green. withOpacity(0.1)
+                                      : Colors.red.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  spot['isActive'] ? 'Active' : 'Inactive',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    color: spot['isActive']
+                                        ? Colors.green[700]
+                                        : Colors.red[700],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            spot['address'],
+                            style:
+                                TextStyle(fontSize: 13, color: Colors.grey[600]),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  spot['description'],
+                  style: TextStyle(fontSize: 14, color: Colors. grey[700]),
+                ),
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[50],
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.location_on_rounded,
+                          color: Color(0xFF1E88E5), size: 18),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Coordinates',
+                                style: TextStyle(fontSize: 11, color: Colors.grey)),
+                            Text(
+                              'Lat: ${spot['location']['lat']}, Lng: ${spot['location']['lng']}',
+                              style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFF212121)),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildInfoItem('Price/Hour',
+                          'EGP ${spot['pricePerHour']}', Icons.attach_money_rounded),
+                    ),
+                    Expanded(
+                      child: _buildInfoItem(
+                          'Availability',
+                          '${spot['availableSpots']}/${spot['totalSpots']}',
+                          Icons.check_circle_rounded),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                if (spot['hasEVCharging'])
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.green.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.ev_station_rounded,
+                            color: Colors.green, size: 20),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'EV Charging Available',
+                            style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.green[700]),
+                          ),
+                        ),
+                        Text(
+                          'EGP ${spot['evChargingPrice']}/kWh',
+                          style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.green[700]),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.grey[50],
+              borderRadius: const BorderRadius.only(
+                bottomLeft: Radius.circular(16),
+                bottomRight: Radius.circular(16),
+              ),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextButton. icon(
+                    onPressed: () => _showEditSpotDialog(spot),
+                    icon: const Icon(Icons. edit_outlined, size: 18),
+                    label: const Text('Edit'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: const Color(0xFF1E88E5),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
+                ),
+                Container(width: 1, height: 40, color: Colors.grey[300]),
+                Expanded(
+                  child: TextButton.icon(
+                    onPressed: () => _toggleSpotStatus(spot),
+                    icon: Icon(
+                      spot['isActive']
+                          ? Icons.visibility_off_outlined
+                          : Icons. visibility_outlined,
+                      size: 18,
+                    ),
+                    label: Text(spot['isActive'] ? 'Deactivate' : 'Activate'),
+                    style: TextButton.styleFrom(
+                      foregroundColor:
+                          spot['isActive'] ? Colors.orange : Colors.green,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
+                ),
+                Container(width: 1, height: 40, color: Colors. grey[300]),
+                Expanded(
+                  child: TextButton.icon(
+                    onPressed: () => _deleteSpot(spot),
+                    icon: const Icon(Icons.delete_outline, size: 18),
+                    label: const Text('Delete'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.red,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInfoItem(String label, String value, IconData icon) {
+    return Row(
+      children: [
+        Icon(icon, size: 18, color: Colors.grey[600]),
+        const SizedBox(width: 8),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label, style: TextStyle(fontSize: 11, color: Colors.grey[500])),
+            Text(
+              value,
+              style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF212121)),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  void _showAddSpotDialog() {
+    final nameController = TextEditingController();
+    final descController = TextEditingController();
+    final addressController = TextEditingController();
+    final latController = TextEditingController();
+    final lngController = TextEditingController();
+    final priceController = TextEditingController();
+    final totalSpotsController = TextEditingController();
+    final evPriceController = TextEditingController();
+    bool hasEVCharging = false;
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Row(
+            children: [
+              Icon(Icons.add_location_rounded, color: Color(0xFF1E88E5)),
+              SizedBox(width: 12),
+              Text('Add Parking Spot'),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: nameController,
+                  decoration: InputDecoration(
+                    labelText: 'Name',
+                    hintText: 'e.g., City Center Parking',
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    prefixIcon: const Icon(Icons.label_outlined),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: descController,
+                  decoration: InputDecoration(
+                    labelText: 'Description',
+                    hintText: 'Describe the parking location',
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    prefixIcon: const Icon(Icons.description_outlined),
+                  ),
+                  maxLines: 2,
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: addressController,
+                  decoration: InputDecoration(
+                    labelText: 'Address',
+                    hintText: 'Full address',
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    prefixIcon: const Icon(Icons.location_on_outlined),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: latController,
+                        decoration: InputDecoration(
+                          labelText: 'Latitude',
+                          border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12)),
+                        ),
+                        keyboardType: TextInputType.number,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: TextField(
+                        controller: lngController,
+                        decoration: InputDecoration(
+                          labelText: 'Longitude',
+                          border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12)),
+                        ),
+                        keyboardType: TextInputType.number,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: priceController,
+                        decoration: InputDecoration(
+                          labelText: 'Price/Hour (EGP)',
+                          border: OutlineInputBorder(
+                              borderRadius: BorderRadius. circular(12)),
+                          prefixIcon: const Icon(Icons.attach_money_rounded),
+                        ),
+                        keyboardType: TextInputType. number,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: TextField(
+                        controller: totalSpotsController,
+                        decoration: InputDecoration(
+                          labelText: 'Total Spots',
+                          border: OutlineInputBorder(
+                              borderRadius: BorderRadius. circular(12)),
+                        ),
+                        keyboardType: TextInputType.number,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                CheckboxListTile(
+                  value: hasEVCharging,
+                  onChanged: (value) {
+                    setDialogState(() {
+                      hasEVCharging = value! ;
+                    });
+                  },
+                  title: const Text('EV Charging Available'),
+                  activeColor: const Color(0xFF1E88E5),
+                  controlAffinity: ListTileControlAffinity.leading,
+                ),
+                if (hasEVCharging) ...[
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: evPriceController,
+                    decoration: InputDecoration(
+                      labelText: 'EV Charging Price (EGP/kWh)',
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius. circular(12)),
+                      prefixIcon: const Icon(Icons. ev_station_rounded),
+                    ),
+                    keyboardType: TextInputType. number,
+                  ),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                if (nameController.text.isEmpty ||
+                    priceController.text.isEmpty ||
+                    totalSpotsController.text.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Please fill all required fields'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                  return;
+                }
+
+                try {
+                  final newSpotData = {
+                    'name': nameController.text,
+                    'description': descController.text,
+                    'address': addressController.text,
+                    'location': {
+                      'lat': double.tryParse(latController.text) ?? 30.0444,
+                      'lng': double.tryParse(lngController.text) ?? 31.2357,
+                    },
+                    'pricePerHour': double.tryParse(priceController.text) ?? 0.0,
+                    'totalSpots': int.tryParse(totalSpotsController.text) ?? 0,
+                    'availableSpots': int.tryParse(totalSpotsController.text) ?? 0,
+                    'hasEVCharging': hasEVCharging,
+                    'evChargingPrice': double.tryParse(evPriceController.text) ?? 0.0,
+                    'isActive': true,
+                    'createdAt': FieldValue.serverTimestamp(),
+                    'updatedAt': FieldValue.serverTimestamp(),
+                  };
+
+                  final docRef = await _firestore.collection('parking_spots').add(newSpotData);
+                  
+                  final newSpot = {
+                    'id': docRef.id,
+                    ...newSpotData,
+                    'createdAt': DateFormat('yyyy-MM-dd').format(DateTime.now()),
+                  };
+
+                  setState(() {
+                    _parkingSpots.add(newSpot);
+                  });
+
+                  Navigator.pop(context);
+
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: const Row(
+                          children: [
+                            Icon(Icons.check_circle_outline, color: Colors.white),
+                            SizedBox(width: 12),
+                            Expanded(child: Text('Parking spot added successfully!')),
+                          ],
+                        ),
+                        backgroundColor: Colors.green[400],
+                        behavior: SnackBarBehavior.floating,
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12)),
+                      ),
+                    );
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Error: $e'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                  }
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF1E88E5),
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Add Spot'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showEditSpotDialog(Map<String, dynamic> spot) {
+    final nameController = TextEditingController(text: spot['name']);
+    final descController = TextEditingController(text: spot['description']);
+    final addressController = TextEditingController(text: spot['address']);
+    final latController =
+        TextEditingController(text: spot['location']['lat'].toString());
+    final lngController =
+        TextEditingController(text: spot['location']['lng'].toString());
+    final priceController =
+        TextEditingController(text: spot['pricePerHour'].toString());
+    final totalSpotsController =
+        TextEditingController(text: spot['totalSpots'].toString());
+    final evPriceController =
+        TextEditingController(text: spot['evChargingPrice'].toString());
+    bool hasEVCharging = spot['hasEVCharging'];
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Row(
+            children: [
+              Icon(Icons.edit_location_rounded, color: Color(0xFF1E88E5)),
+              SizedBox(width: 12),
+              Text('Edit Parking Spot'),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: nameController,
+                  decoration: InputDecoration(
+                    labelText: 'Name',
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    prefixIcon: const Icon(Icons.label_outlined),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: descController,
+                  decoration: InputDecoration(
+                    labelText: 'Description',
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    prefixIcon: const Icon(Icons.description_outlined),
+                  ),
+                  maxLines: 2,
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: addressController,
+                  decoration: InputDecoration(
+                    labelText: 'Address',
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    prefixIcon: const Icon(Icons.location_on_outlined),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: latController,
+                        decoration: InputDecoration(
+                          labelText: 'Latitude',
+                          border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12)),
+                        ),
+                        keyboardType: TextInputType. number,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: TextField(
+                        controller: lngController,
+                        decoration: InputDecoration(
+                          labelText: 'Longitude',
+                          border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12)),
+                        ),
+                        keyboardType: TextInputType. number,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: priceController,
+                        decoration: InputDecoration(
+                          labelText: 'Price/Hour (EGP)',
+                          border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12)),
+                          prefixIcon: const Icon(Icons.attach_money_rounded),
+                        ),
+                        keyboardType: TextInputType.number,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: TextField(
+                        controller: totalSpotsController,
+                        decoration: InputDecoration(
+                          labelText: 'Total Spots',
+                          border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12)),
+                        ),
+                        keyboardType: TextInputType.number,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                CheckboxListTile(
+                  value: hasEVCharging,
+                  onChanged: (value) {
+                    setDialogState(() {
+                      hasEVCharging = value! ;
+                    });
+                  },
+                  title: const Text('EV Charging Available'),
+                  activeColor: const Color(0xFF1E88E5),
+                  controlAffinity: ListTileControlAffinity. leading,
+                ),
+                if (hasEVCharging) .. .[
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: evPriceController,
+                    decoration: InputDecoration(
+                      labelText: 'EV Charging Price (EGP/kWh)',
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                      prefixIcon: const Icon(Icons.ev_station_rounded),
+                    ),
+                    keyboardType: TextInputType.number,
+                  ),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                try {
+                  await _firestore.collection('parking_spots').doc(spot['id']).update({
+                    'name': nameController.text,
+                    'description': descController.text,
+                    'address': addressController.text,
+                    'location': {
+                      'lat': double.tryParse(latController.text) ?? 30.0444,
+                      'lng': double.tryParse(lngController.text) ?? 31.2357,
+                    },
+                    'pricePerHour': double.tryParse(priceController.text) ?? 0.0,
+                    'totalSpots': int.tryParse(totalSpotsController.text) ?? 0,
+                    'hasEVCharging': hasEVCharging,
+                    'evChargingPrice': double.tryParse(evPriceController.text) ?? 0.0,
+                    'updatedAt': FieldValue.serverTimestamp(),
+                  });
+
+                  setState(() {
+                    spot['name'] = nameController.text;
+                    spot['description'] = descController.text;
+                    spot['address'] = addressController.text;
+                    spot['location'] = {
+                      'lat': double.tryParse(latController.text) ?? 30.0444,
+                      'lng': double.tryParse(lngController.text) ?? 31.2357,
+                    };
+                    spot['pricePerHour'] = double.tryParse(priceController.text) ?? 0.0;
+                    spot['totalSpots'] = int.tryParse(totalSpotsController.text) ?? 0;
+                    spot['hasEVCharging'] = hasEVCharging;
+                    spot['evChargingPrice'] = double.tryParse(evPriceController.text) ?? 0.0;
+                  });
+
+                  Navigator.pop(context);
+
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: const Row(
+                          children: [
+                            Icon(Icons.check_circle_outline, color: Colors. white),
+                            SizedBox(width: 12),
+                            Expanded(child: Text('Parking spot updated successfully!')),
+                          ],
+                        ),
+                        backgroundColor: Colors.green[400],
+                        behavior: SnackBarBehavior.floating,
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12)),
+                      ),
+                    );
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Error: $e'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                  }
+                }
+              },
+              style: ElevatedButton. styleFrom(
+                backgroundColor: const Color(0xFF1E88E5),
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Update'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _toggleSpotStatus(Map<String, dynamic> spot) async {
+    try {
+      final newStatus = !(spot['isActive'] ?? true);
+      await _firestore.collection('parking_spots').doc(spot['id']).update({
+        'isActive': newStatus,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      setState(() {
+        spot['isActive'] = newStatus;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.info_outline, color: Colors.white),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    newStatus
+                        ? 'Parking spot activated'
+                        : 'Parking spot deactivated',
+                  ),
+                ),
+              ],
+            ),
+            backgroundColor: const Color(0xFF1E88E5),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _deleteSpot(Map<String, dynamic> spot) async {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Delete Parking Spot'),
+        content: Text(
+          'Are you sure you want to delete "${spot['name']}"?  This action cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              try {
+                // Delete related reservations first
+                final reservationsSnapshot = await _firestore
+                    .collection('reservations')
+                    .where('spotId', isEqualTo: spot['id'])
+                    .get();
+                
+                for (var doc in reservationsSnapshot.docs) {
+                  await doc.reference.delete();
+                }
+                
+                // Delete parking spot
+                await _firestore.collection('parking_spots').doc(spot['id']).delete();
+                
+                setState(() {
+                  _parkingSpots.remove(spot);
+                });
+
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: const Row(
+                        children: [
+                          Icon(Icons.delete_outline, color: Colors.white),
+                          SizedBox(width: 12),
+                          Expanded(child: Text('Parking spot deleted')),
+                        ],
+                      ),
+                      backgroundColor: Colors. red[400],
+                      behavior: SnackBarBehavior.floating,
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Error: $e'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              }
+            },
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+  }
+}

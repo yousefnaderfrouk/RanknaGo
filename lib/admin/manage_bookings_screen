@@ -1,0 +1,1033 @@
+import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:intl/intl.dart';
+
+class ManageBookingsScreen extends StatefulWidget {
+  const ManageBookingsScreen({super.key});
+
+  @override
+  State<ManageBookingsScreen> createState() => _ManageBookingsScreenState();
+}
+
+class _ManageBookingsScreenState extends State<ManageBookingsScreen> {
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  String _searchQuery = '';
+  String _filterStatus = 'All'; // All, Active, Completed, Cancelled
+  bool _isLoading = true;
+  List<Map<String, dynamic>> _bookings = [];
+  List<Map<String, dynamic>> _availableSpots = [];
+  List<Map<String, dynamic>> _availableUsers = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
+
+  Future<void> _loadData() async {
+    try {
+      // Load bookings
+      final bookingsSnapshot = await _firestore.collection('reservations').get();
+      final List<Map<String, dynamic>> bookings = [];
+
+      for (var doc in bookingsSnapshot.docs) {
+        final data = doc.data();
+        
+        // Get user info
+        final userDoc = await _firestore.collection('users').doc(data['userId']).get();
+        final userData = userDoc.data();
+        
+        // Get spot info
+        final spotDoc = await _firestore.collection('parking_spots').doc(data['spotId']).get();
+        final spotData = spotDoc.data();
+        
+        final startTime = (data['startTime'] as Timestamp?)?.toDate();
+        final endTime = (data['endTime'] as Timestamp?)?.toDate();
+        final createdAt = (data['createdAt'] as Timestamp?)?.toDate();
+        
+        bookings.add({
+          'id': doc.id,
+          'userId': data['userId'],
+          'spotId': data['spotId'],
+          'userName': userData?['name'] ?? 'Unknown',
+          'userEmail': userData?['email'] ?? '',
+          'spotName': spotData?['name'] ?? 'Unknown',
+          'spotAddress': spotData?['address'] ?? '',
+          'date': startTime != null ? DateFormat('yyyy-MM-dd').format(startTime) : 'N/A',
+          'startTime': startTime != null ? DateFormat('hh:mm a').format(startTime) : 'N/A',
+          'endTime': endTime != null ? DateFormat('hh:mm a').format(endTime) : 'N/A',
+          'duration': data['duration'] ?? 'N/A',
+          'price': (data['price'] ?? 0.0).toDouble(),
+          'status': data['status'] ?? 'active',
+          'createdAt': createdAt != null ? DateFormat('yyyy-MM-dd HH:mm').format(createdAt) : 'N/A',
+        });
+      }
+
+      // Load available spots
+      final spotsSnapshot = await _firestore.collection('parking_spots').where('isActive', isEqualTo: true).get();
+      _availableSpots = spotsSnapshot.docs.map((doc) {
+        final data = doc.data();
+        return {
+          'id': doc.id,
+          'name': data['name'] ?? '',
+          'address': data['address'] ?? '',
+          'pricePerHour': (data['pricePerHour'] ?? 0.0).toDouble(),
+          'availableSpots': data['availableSpots'] ?? 0,
+        };
+      }).toList();
+
+      // Load available users
+      final usersSnapshot = await _firestore.collection('users').where('status', isNotEqualTo: 'blocked').get();
+      _availableUsers = usersSnapshot.docs.map((doc) {
+        final data = doc.data();
+        return {
+          'id': doc.id,
+          'name': data['name'] ?? '',
+          'email': data['email'] ?? '',
+        };
+      }).toList();
+
+      setState(() {
+        _bookings = bookings;
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error loading bookings: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+    {
+      'id': 'BK001',
+      'userName': 'Ahmed Mohamed',
+      'userEmail': 'ahmed@example.com',
+      'spotName': 'City Center Parking',
+      'spotAddress': 'Downtown Cairo',
+      'date': '2024-01-20',
+      'startTime': '10:00 AM',
+      'endTime': '02:00 PM',
+      'duration': '4 hours',
+      'price': 60. 0,
+      'status': 'active',
+      'createdAt': '2024-01-20 09:30',
+    },
+    {
+      'id': 'BK002',
+      'userName': 'Sara Ali',
+      'userEmail': 'sara@example.com',
+      'spotName': 'Mall Parking',
+      'spotAddress': 'New Cairo',
+      'date': '2024-01-20',
+      'startTime': '11:00 AM',
+      'endTime': '03:00 PM',
+      'duration': '4 hours',
+      'price': 80.0,
+      'status': 'active',
+      'createdAt': '2024-01-20 10:15',
+    },
+    {
+      'id': 'BK003',
+      'userName': 'Mohamed Hassan',
+      'userEmail': 'mohamed@example.com',
+      'spotName': 'Street Parking',
+      'spotAddress': 'Heliopolis',
+      'date': '2024-01-19',
+      'startTime': '09:00 AM',
+      'endTime': '12:00 PM',
+      'duration': '3 hours',
+      'price': 30.0,
+      'status': 'completed',
+      'createdAt': '2024-01-19 08:45',
+    },
+  ];
+
+
+  List<Map<String, dynamic>> get _filteredBookings {
+    return _bookings. where((booking) {
+      final matchesSearch = booking['userName']
+              .toString()
+              .toLowerCase()
+              .contains(_searchQuery.toLowerCase()) ||
+          booking['spotName']
+              .toString()
+              . toLowerCase()
+              .contains(_searchQuery.toLowerCase()) ||
+          booking['id']
+              .toString()
+              .toLowerCase()
+              .contains(_searchQuery.toLowerCase());
+
+      final matchesStatus = _filterStatus == 'All' ||
+          booking['status']. toString().toLowerCase() ==
+              _filterStatus.toLowerCase();
+
+      return matchesSearch && matchesStatus;
+    }).toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.grey[50],
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF1E88E5),
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: const Text(
+          'Manage Bookings',
+          style: TextStyle(color: Colors.white),
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.add_rounded, color: Colors.white),
+            onPressed: _showCreateBookingDialog,
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          // Search and Filter
+          Container(
+            padding: const EdgeInsets.all(16),
+            color: Colors.white,
+            child: Column(
+              children: [
+                // Search Bar
+                Container(
+                  decoration: BoxDecoration(
+                    color: Colors.grey[100],
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: TextField(
+                    onChanged: (value) {
+                      setState(() {
+                        _searchQuery = value;
+                      });
+                    },
+                    decoration: const InputDecoration(
+                      hintText: 'Search bookings...',
+                      prefixIcon: Icon(Icons.search, color: Color(0xFF1E88E5)),
+                      border: InputBorder.none,
+                      contentPadding: EdgeInsets. symmetric(
+                        horizontal: 16,
+                        vertical: 14,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                // Filter Chips
+                Row(
+                  children: [
+                    _buildFilterChip('All'),
+                    const SizedBox(width: 8),
+                    _buildFilterChip('Active'),
+                    const SizedBox(width: 8),
+                    _buildFilterChip('Completed'),
+                    const SizedBox(width: 8),
+                    _buildFilterChip('Cancelled'),
+                  ],
+                ),
+              ],
+            ),
+          ),
+
+          // Bookings List
+          Expanded(
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : _filteredBookings.isEmpty
+                    ?  Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment. center,
+                          children: [
+                            Icon(Icons.book_rounded,
+                                size: 80, color: Colors.grey[300]),
+                            const SizedBox(height: 16),
+                            Text(
+                              'No bookings found',
+                              style: TextStyle(fontSize: 16, color: Colors. grey[600]),
+                            ),
+                          ],
+                        ),
+                      )
+                    : ListView.builder(
+                        padding: const EdgeInsets.all(16),
+                        itemCount: _filteredBookings.length,
+                        itemBuilder: (context, index) {
+                          return _buildBookingCard(_filteredBookings[index]);
+                        },
+                      ),
+          ),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton. extended(
+        onPressed: _showCreateBookingDialog,
+        backgroundColor: const Color(0xFF1E88E5),
+        icon: const Icon(Icons.add_rounded),
+        label: const Text('New Booking'),
+      ),
+    );
+  }
+
+  Widget _buildFilterChip(String label) {
+    final isSelected = _filterStatus == label;
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _filterStatus = label;
+        });
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? const Color(0xFF1E88E5) : Colors.grey[200],
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: isSelected ? Colors.white : Colors.grey[700],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBookingCard(Map<String, dynamic> booking) {
+    final statusColor = booking['status'] == 'active'
+        ? Colors.green
+        : booking['status'] == 'completed'
+            ? Colors.blue
+            : Colors.red;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black. withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Header
+                Row(
+                  children: [
+                    Container(
+                      width: 50,
+                      height: 50,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            const Color(0xFF1E88E5),
+                            const Color(0xFF1976D2)
+                          ],
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Center(
+                        child: Text(
+                          booking['userName']. toString()[0]. toUpperCase(),
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  booking['id'],
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF212121),
+                                  ),
+                                ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: statusColor. withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  booking['status']. toString().toUpperCase(),
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    color: statusColor[700],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            booking['userName'],
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors. grey[600],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 16),
+                const Divider(),
+                const SizedBox(height: 16),
+
+                // Parking Details
+                Row(
+                  children: [
+                    const Icon(Icons.local_parking_rounded,
+                        size: 18, color: Color(0xFF1E88E5)),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            booking['spotName'],
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF212121),
+                            ),
+                          ),
+                          Text(
+                            booking['spotAddress'],
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 16),
+
+                // Time & Duration
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[50],
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(Icons.calendar_today_rounded,
+                                    size: 14, color: Colors.grey[600]),
+                                const SizedBox(width: 6),
+                                Text(
+                                  booking['date'],
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                Icon(Icons.access_time_rounded,
+                                    size: 14, color: Colors.grey[600]),
+                                const SizedBox(width: 6),
+                                Text(
+                                  '${booking['startTime']} - ${booking['endTime']}',
+                                  style: const TextStyle(fontSize: 12),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF1E88E5).withOpacity(0. 1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Column(
+                          children: [
+                            const Text(
+                              'Price',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.grey,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'EGP ${booking['price']}',
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF1E88E5),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // Actions
+          if (booking['status'] == 'active')
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.grey[50],
+                borderRadius: const BorderRadius.only(
+                  bottomLeft: Radius.circular(16),
+                  bottomRight: Radius.circular(16),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextButton. icon(
+                      onPressed: () => _completeBooking(booking),
+                      icon: const Icon(Icons.check_circle_outline, size: 18),
+                      label: const Text('Complete'),
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.green,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                    ),
+                  ),
+                  Container(width: 1, height: 40, color: Colors.grey[300]),
+                  Expanded(
+                    child: TextButton.icon(
+                      onPressed: () => _cancelBooking(booking),
+                      icon: const Icon(Icons.cancel_outlined, size: 18),
+                      label: const Text('Cancel'),
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.red,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  void _showCreateBookingDialog() {
+    Map<String, dynamic>? selectedUser;
+    Map<String, dynamic>? selectedSpot;
+    DateTime selectedDate = DateTime.now();
+    TimeOfDay startTime = TimeOfDay.now();
+    TimeOfDay endTime = TimeOfDay(hour: TimeOfDay.now().hour + 2, minute: 0);
+    int duration = 2;
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Row(
+            children: [
+              Icon(Icons.add_circle_rounded, color: Color(0xFF1E88E5)),
+              SizedBox(width: 12),
+              Text('Create Manual Booking'),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Select User
+                const Text(
+                  'Select User',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.grey[300]! ),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: DropdownButtonFormField<Map<String, dynamic>>(
+                    value: selectedUser,
+                    decoration: const InputDecoration(
+                      hintText: 'Choose user',
+                      prefixIcon: Icon(Icons.person_search_rounded),
+                      border: InputBorder.none,
+                      contentPadding:
+                          EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    ),
+                    items: _availableUsers.map((user) {
+                      return DropdownMenuItem<Map<String, dynamic>>(
+                        value: user,
+                        child: Text(user['name']),
+                      );
+                    }).toList(),
+                    onChanged: (value) {
+                      setDialogState(() {
+                        selectedUser = value;
+                      });
+                    },
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+
+                // Select Parking Spot
+                const Text(
+                  'Select Parking Spot',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors. grey[300]!),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: DropdownButtonFormField<Map<String, dynamic>>(
+                    value: selectedSpot,
+                    decoration: const InputDecoration(
+                      hintText: 'Choose parking spot',
+                      prefixIcon: Icon(Icons.local_parking_rounded),
+                      border: InputBorder.none,
+                      contentPadding:
+                          EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    ),
+                    items: _availableSpots. map((spot) {
+                      return DropdownMenuItem<Map<String, dynamic>>(
+                        value: spot,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(spot['name']),
+                            Text(
+                              '${spot['address']} - EGP ${spot['pricePerHour']}/hr',
+                              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                            ),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                    onChanged: (value) {
+                      setDialogState(() {
+                        selectedSpot = value;
+                      });
+                    },
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+
+                // Date Selection
+                const Text(
+                  'Booking Date',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 8),
+                GestureDetector(
+                  onTap: () async {
+                    final date = await showDatePicker(
+                      context: context,
+                      initialDate: selectedDate,
+                      firstDate: DateTime. now(),
+                      lastDate: DateTime.now().add(const Duration(days: 30)),
+                    );
+                    if (date != null) {
+                      setDialogState(() {
+                        selectedDate = date;
+                      });
+                    }
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.grey[300]!),
+                      borderRadius: BorderRadius. circular(12),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.calendar_today_rounded,
+                            color: Color(0xFF1E88E5)),
+                        const SizedBox(width: 12),
+                        Text(
+                          '${selectedDate.day}/${selectedDate.month}/${selectedDate.year}',
+                          style: const TextStyle(fontSize: 15),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+
+                // Duration Selection
+                const Text(
+                  'Duration (hours)',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [1, 2, 3, 4, 6, 8]. map((hour) {
+                    final isSelected = duration == hour;
+                    return Expanded(
+                      child: GestureDetector(
+                        onTap: () {
+                          setDialogState(() {
+                            duration = hour;
+                          });
+                        },
+                        child: Container(
+                          margin: const EdgeInsets.only(right: 8),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? const Color(0xFF1E88E5)
+                                : Colors.grey[200],
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            '$hour',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: isSelected ? Colors.white : Colors.grey[700],
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+
+                const SizedBox(height: 16),
+
+                // Price Preview
+                if (selectedSpot != null)
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1E88E5).withOpacity(0. 1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Total Price:',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        Text(
+                          'EGP ${(selectedSpot!['pricePerHour'] * duration).toStringAsFixed(0)}',
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF1E88E5),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                if (selectedUser == null || selectedSpot == null) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Please select user and parking spot'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                  return;
+                }
+
+                try {
+                  final startDateTime = DateTime(
+                    selectedDate.year,
+                    selectedDate.month,
+                    selectedDate.day,
+                    startTime.hour,
+                    startTime.minute,
+                  );
+                  final endDateTime = startDateTime.add(Duration(hours: duration));
+                  
+                  final bookingData = {
+                    'userId': selectedUser!['id'],
+                    'spotId': selectedSpot!['id'],
+                    'startTime': Timestamp.fromDate(startDateTime),
+                    'endTime': Timestamp.fromDate(endDateTime),
+                    'duration': '$duration hours',
+                    'price': selectedSpot!['pricePerHour'] * duration,
+                    'status': 'active',
+                    'createdAt': FieldValue.serverTimestamp(),
+                    'updatedAt': FieldValue.serverTimestamp(),
+                  };
+
+                  final docRef = await _firestore.collection('reservations').add(bookingData);
+                  
+                  // Update available spots
+                  await _firestore.collection('parking_spots').doc(selectedSpot!['id']).update({
+                    'availableSpots': FieldValue.increment(-1),
+                    'updatedAt': FieldValue.serverTimestamp(),
+                  });
+
+                  final newBooking = {
+                    'id': docRef.id,
+                    'userId': selectedUser!['id'],
+                    'spotId': selectedSpot!['id'],
+                    'userName': selectedUser!['name'],
+                    'userEmail': selectedUser!['email'],
+                    'spotName': selectedSpot!['name'],
+                    'spotAddress': selectedSpot!['address'],
+                    'date': DateFormat('yyyy-MM-dd').format(startDateTime),
+                    'startTime': DateFormat('hh:mm a').format(startDateTime),
+                    'endTime': DateFormat('hh:mm a').format(endDateTime),
+                    'duration': '$duration hours',
+                    'price': selectedSpot!['pricePerHour'] * duration,
+                    'status': 'active',
+                    'createdAt': DateFormat('yyyy-MM-dd HH:mm').format(DateTime.now()),
+                  };
+
+                  setState(() {
+                    _bookings.insert(0, newBooking);
+                  });
+
+                  Navigator.pop(context);
+
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: const Row(
+                          children: [
+                            Icon(Icons.check_circle_outline, color: Colors. white),
+                            SizedBox(width: 12),
+                            Expanded(child: Text('Booking created successfully!')),
+                          ],
+                        ),
+                        backgroundColor: Colors.green[400],
+                        behavior: SnackBarBehavior.floating,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    );
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Error: $e'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                  }
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF1E88E5),
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Create Booking'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _completeBooking(Map<String, dynamic> booking) async {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Complete Booking'),
+        content: Text('Mark booking ${booking['id']} as completed?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              try {
+                await _firestore.collection('reservations').doc(booking['id']).update({
+                  'status': 'completed',
+                  'updatedAt': FieldValue.serverTimestamp(),
+                });
+                
+                // Update available spots
+                await _firestore.collection('parking_spots').doc(booking['spotId']).update({
+                  'availableSpots': FieldValue.increment(1),
+                  'updatedAt': FieldValue.serverTimestamp(),
+                });
+
+                setState(() {
+                  booking['status'] = 'completed';
+                });
+                
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: const Text('Booking marked as completed'),
+                      backgroundColor: Colors.green[400],
+                      behavior: SnackBarBehavior.floating,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Error: $e'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green,
+              foregroundColor: Colors. white,
+            ),
+            child: const Text('Complete'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _cancelBooking(Map<String, dynamic> booking) async {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius. circular(16)),
+        title: const Text('Cancel Booking'),
+        content: Text(
+          'Are you sure you want to cancel booking ${booking['id']}?  This action cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('No'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              try {
+                await _firestore.collection('reservations').doc(booking['id']).update({
+                  'status': 'cancelled',
+                  'updatedAt': FieldValue.serverTimestamp(),
+                });
+                
+                // Update available spots if booking was active
+                if (booking['status'] == 'active') {
+                  await _firestore.collection('parking_spots').doc(booking['spotId']).update({
+                    'availableSpots': FieldValue.increment(1),
+                    'updatedAt': FieldValue.serverTimestamp(),
+                  });
+                }
+
+                setState(() {
+                  booking['status'] = 'cancelled';
+                });
+                
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: const Text('Booking cancelled'),
+                      backgroundColor: Colors.red[400],
+                      behavior: SnackBarBehavior.floating,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Error: $e'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              }
+            },
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Yes, Cancel'),
+          ),
+        ],
+      ),
+    );
+  }
+}

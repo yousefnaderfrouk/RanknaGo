@@ -1,0 +1,63 @@
+{
+  "project_info": {
+    "project_number": "818822035544",
+    "project_id": "raknago-pro",
+    "storage_bucket": "raknago-pro.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:818822035544:android:76a335028102741520322d",
+        "android_client_info": {
+          "package_name": "com.raknago.cic"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyANgNZBhMoEDuMU_Ui2L8nEJoUCn3fckN8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

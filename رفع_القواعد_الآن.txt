@@ -1,0 +1,18 @@
+⚠️ مهم جداً: يجب رفع القواعد إلى Firebase الآن!
+
+الخطوات:
+
+1. افتح Firebase Console:
+   https://console.firebase.google.com/
+
+2. اختر مشروعك: raknago-pro
+
+3. اذهب إلى: Firestore Database → Rules
+
+4. انسخ محتوى ملف firestore.rules بالكامل
+
+5. الصق في Firebase Console
+
+6. اضغط "Publish"
+
+بدون رفع القواعد، لن تعمل ميزة إضافة الرصيد!
