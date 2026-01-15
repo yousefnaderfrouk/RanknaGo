@@ -8,7 +8,6 @@ import 'package:latlong2/latlong.dart';
 import 'directions_map_screen.dart';
 import 'parking_details_screen.dart';
 import '../theme_provider.dart';
-import '../language_provider.dart';
 
 class BookingScreen extends StatefulWidget {
   const BookingScreen({super.key});
@@ -47,35 +46,14 @@ class _BookingScreenState extends State<BookingScreen>
     final user = _auth.currentUser;
     if (user != null) {
       // Listen to reservations changes in real-time
-      // Don't use orderBy in listener to avoid index requirement
-      // We'll sort manually in _processBookings
       _bookingsSubscription = _firestore
           .collection('reservations')
           .where('userId', isEqualTo: user.uid)
           .snapshots()
-          .listen(
-            (snapshot) {
-              print('🔄 Real-time update: ${snapshot.docs.length} bookings');
-              // Sort manually since we can't use orderBy without index
-              final docs = snapshot.docs.toList();
-              docs.sort((a, b) {
-                final aData = a.data() as Map<String, dynamic>?;
-                final bData = b.data() as Map<String, dynamic>?;
-                final aTime = (aData?['startTime'] as Timestamp?)?.toDate();
-                final bTime = (bData?['startTime'] as Timestamp?)?.toDate();
-                if (aTime == null && bTime == null) return 0;
-                if (aTime == null) return 1;
-                if (bTime == null) return -1;
-                return bTime.compareTo(aTime); // descending
-              });
-              _processBookings(docs);
-            },
-            onError: (error) {
-              print('❌ Error in real-time listener: $error');
-              // Try to reload bookings manually on error
-              _loadBookings();
-            },
-          );
+          .listen((snapshot) {
+            print('🔄 Real-time update: ${snapshot.docs.length} bookings');
+            _processBookings(snapshot.docs);
+          });
     }
   }
 
@@ -286,7 +264,7 @@ class _BookingScreenState extends State<BookingScreen>
             ),
             const SizedBox(width: 12),
             Text(
-              context.translate('My Booking'),
+              'My Booking',
               style: TextStyle(
                 fontSize: 22,
                 fontWeight: FontWeight.bold,
@@ -325,9 +303,9 @@ class _BookingScreenState extends State<BookingScreen>
               ),
               indicatorColor: const Color(0xFF1E88E5),
               indicatorWeight: 3,
-              tabs: [
-                Tab(text: context.translate('Completed')),
-                Tab(text: context.translate('Canceled')),
+              tabs: const [
+                Tab(text: 'Completed'),
+                Tab(text: 'Canceled'),
               ],
             ),
           ),
@@ -374,15 +352,15 @@ class _BookingScreenState extends State<BookingScreen>
     IconData icon;
     switch (type) {
       case 'completed':
-        message = context.translate('No completed bookings');
+        message = 'No completed bookings';
         icon = Icons.check_circle_outline_rounded;
         break;
       case 'canceled':
-        message = context.translate('No canceled bookings');
+        message = 'No canceled bookings';
         icon = Icons.cancel_outlined;
         break;
       default:
-        message = context.translate('No bookings');
+        message = 'No bookings';
         icon = Icons.event_note_rounded;
     }
 
@@ -648,14 +626,14 @@ class _BookingScreenState extends State<BookingScreen>
               Expanded(
                 child: _buildDetailColumn(
                   icon: Icons.ev_station_rounded,
-                  label: context.translate('Tesla (Plug)'),
+                  label: 'Tesla (Plug)',
                   iconColor: isDark ? Colors.grey[400]! : Colors.grey[700]!,
                 ),
               ),
               Expanded(
                 child: _buildDetailColumn(
                   icon: Icons.bolt_rounded,
-                  label: context.translate('Max power'),
+                  label: 'Max power',
                   value: '$maxPower kW',
                   iconColor: isDark ? Colors.grey[400]! : Colors.grey[700]!,
                 ),
@@ -664,8 +642,8 @@ class _BookingScreenState extends State<BookingScreen>
                 child: _buildDetailColumn(
                   icon: Icons.access_time_rounded,
                   label: type == 'completed' || type == 'canceled'
-                      ? context.translate('Parked For')
-                      : context.translate('Duration'),
+                      ? 'Parked For'
+                      : 'Duration',
                   value: durationText,
                   iconColor: isDark ? Colors.grey[400]! : Colors.grey[700]!,
                 ),
@@ -674,10 +652,10 @@ class _BookingScreenState extends State<BookingScreen>
                 child: _buildDetailColumn(
                   icon: Icons.attach_money_rounded,
                   label: type == 'canceled'
-                      ? context.translate('Total Paid')
+                      ? 'Total Paid'
                       : type == 'completed'
-                      ? context.translate('Total Paid')
-                      : context.translate('Amount'),
+                      ? 'Total Paid'
+                      : 'Amount',
                   value: 'EGP ${displayAmount.toStringAsFixed(2)}',
                   iconColor: isDark ? Colors.grey[400]! : Colors.grey[700]!,
                 ),
@@ -709,7 +687,7 @@ class _BookingScreenState extends State<BookingScreen>
                   ),
                   const SizedBox(width: 8),
                   Text(
-                    '${context.translate('Extra:')} EGP ${((booking['additionalCharge'] as num).toDouble()).toStringAsFixed(2)}',
+                    'Extra: EGP ${((booking['additionalCharge'] as num).toDouble()).toStringAsFixed(2)}',
                     style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w600,
@@ -745,9 +723,7 @@ class _BookingScreenState extends State<BookingScreen>
                     padding: const EdgeInsets.symmetric(vertical: 13),
                   ),
                   child: Text(
-                    type == 'completed'
-                        ? context.translate('Cancel')
-                        : context.translate('View'),
+                    type == 'completed' ? 'Cancel' : 'View',
                     style: const TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.w600,
@@ -770,12 +746,9 @@ class _BookingScreenState extends State<BookingScreen>
                     ),
                     padding: const EdgeInsets.symmetric(vertical: 13),
                   ),
-                  child: Text(
-                    context.translate('View'),
-                    style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                    ),
+                  child: const Text(
+                    'View',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
                   ),
                 ),
               ),
@@ -831,9 +804,9 @@ class _BookingScreenState extends State<BookingScreen>
   String _getStatusText(String type) {
     switch (type) {
       case 'completed':
-        return context.translate('Completed');
+        return 'Completed';
       case 'canceled':
-        return context.translate('Canceled');
+        return 'Canceled';
       default:
         return 'Unknown';
     }
@@ -859,8 +832,8 @@ class _BookingScreenState extends State<BookingScreen>
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(context.translate('Location not available')),
+            const SnackBar(
+              content: Text('Location not available'),
               backgroundColor: Colors.red,
             ),
           );
@@ -931,10 +904,8 @@ class _BookingScreenState extends State<BookingScreen>
     if (user == null) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              context.translate('Please log in to cancel bookings'),
-            ),
+          const SnackBar(
+            content: Text('Please log in to cancel bookings'),
             backgroundColor: Colors.red,
           ),
         );
@@ -946,8 +917,8 @@ class _BookingScreenState extends State<BookingScreen>
     if (bookingId == null) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(context.translate('Invalid booking: Missing ID')),
+          const SnackBar(
+            content: Text('Invalid booking: Missing ID'),
             backgroundColor: Colors.red,
           ),
         );
@@ -966,8 +937,8 @@ class _BookingScreenState extends State<BookingScreen>
       if (!bookingDoc.exists) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(context.translate('Booking not found')),
+            const SnackBar(
+              content: Text('Booking not found'),
               backgroundColor: Colors.red,
             ),
           );
@@ -996,12 +967,10 @@ class _BookingScreenState extends State<BookingScreen>
         print('❌ Match: ${firestoreUserId == user.uid}');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                context.translate('You can only cancel your own bookings'),
-              ),
+            const SnackBar(
+              content: Text('You can only cancel your own bookings'),
               backgroundColor: Colors.red,
-              duration: const Duration(seconds: 4),
+              duration: Duration(seconds: 4),
             ),
           );
         }
@@ -1025,9 +994,7 @@ class _BookingScreenState extends State<BookingScreen>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              '${context.translate('Error verifying booking:')} ${e.toString()}',
-            ),
+            content: Text('Error verifying booking: ${e.toString()}'),
             backgroundColor: Colors.red,
             duration: const Duration(seconds: 4),
           ),
@@ -1083,7 +1050,7 @@ class _BookingScreenState extends State<BookingScreen>
               const Icon(Icons.cancel_outlined, color: Colors.red),
               const SizedBox(width: 12),
               Text(
-                context.translate('Cancel Booking'),
+                'Cancel Booking',
                 style: TextStyle(
                   color: isDark ? Colors.white : const Color(0xFF212121),
                 ),
@@ -1096,12 +1063,8 @@ class _BookingScreenState extends State<BookingScreen>
             children: [
               Text(
                 booking['status'] == 'completed'
-                    ? context.translate(
-                        'This booking is already completed. Are you sure you want to cancel it?',
-                      )
-                    : context.translate(
-                        'Are you sure you want to cancel this booking?',
-                      ),
+                    ? 'This booking is already completed. Are you sure you want to cancel it?'
+                    : 'Are you sure you want to cancel this booking?',
                 style: TextStyle(
                   color: isDark ? Colors.grey[300] : Colors.grey[700],
                 ),
@@ -1121,14 +1084,14 @@ class _BookingScreenState extends State<BookingScreen>
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
-                          context.translate('Time spent:'),
+                          'Time spent:',
                           style: TextStyle(
                             fontSize: 14,
                             color: isDark ? Colors.grey[300] : Colors.grey[700],
                           ),
                         ),
                         Text(
-                          '${hoursSpent.toStringAsFixed(2)} ${context.translate('hours')}',
+                          '${hoursSpent.toStringAsFixed(2)} hours',
                           style: TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.bold,
@@ -1143,7 +1106,7 @@ class _BookingScreenState extends State<BookingScreen>
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
-                          context.translate('1st hour (paid):'),
+                          '1st hour (paid):',
                           style: TextStyle(
                             fontSize: 14,
                             color: isDark ? Colors.grey[300] : Colors.grey[700],
@@ -1165,7 +1128,7 @@ class _BookingScreenState extends State<BookingScreen>
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
-                          context.translate('Total charge:'),
+                          'Total charge:',
                           style: TextStyle(
                             fontSize: 14,
                             color: isDark ? Colors.grey[300] : Colors.grey[700],
@@ -1188,7 +1151,7 @@ class _BookingScreenState extends State<BookingScreen>
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Text(
-                            context.translate('Extra charge:'),
+                            'Extra charge:',
                             style: TextStyle(
                               fontSize: 15,
                               fontWeight: FontWeight.bold,
@@ -1209,7 +1172,7 @@ class _BookingScreenState extends State<BookingScreen>
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        '⚠️ ${context.translate('Will be deducted from wallet')}',
+                        '⚠️ Will be deducted from wallet',
                         style: TextStyle(
                           fontSize: 12,
                           color: Colors.red.shade700,
@@ -1219,7 +1182,7 @@ class _BookingScreenState extends State<BookingScreen>
                     ] else ...[
                       const Divider(height: 20),
                       Text(
-                        '✅ ${context.translate('No additional charge')}',
+                        '✅ No additional charge',
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
@@ -1228,9 +1191,7 @@ class _BookingScreenState extends State<BookingScreen>
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        context.translate(
-                          'First hour already paid (non-refundable)',
-                        ),
+                        'First hour already paid (non-refundable)',
                         style: TextStyle(
                           fontSize: 12,
                           color: isDark ? Colors.grey[400] : Colors.grey[600],
@@ -1247,7 +1208,7 @@ class _BookingScreenState extends State<BookingScreen>
             TextButton(
               onPressed: () => Navigator.pop(context),
               child: Text(
-                context.translate('No'),
+                'No',
                 style: TextStyle(
                   color: isDark ? Colors.grey[400] : Colors.grey[600],
                 ),
@@ -1269,7 +1230,7 @@ class _BookingScreenState extends State<BookingScreen>
                 backgroundColor: Colors.red,
                 foregroundColor: Colors.white,
               ),
-              child: Text(context.translate('Yes, Cancel')),
+              child: const Text('Yes, Cancel'),
             ),
           ],
         ),
@@ -1298,8 +1259,8 @@ class _BookingScreenState extends State<BookingScreen>
       if (!bookingDoc.exists) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(context.translate('Booking not found')),
+            const SnackBar(
+              content: Text('Booking not found'),
               backgroundColor: Colors.red,
             ),
           );
@@ -1325,12 +1286,10 @@ class _BookingScreenState extends State<BookingScreen>
         print('❌ Current user uid: ${user.uid}');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                context.translate('You can only cancel your own bookings'),
-              ),
+            const SnackBar(
+              content: Text('You can only cancel your own bookings'),
               backgroundColor: Colors.red,
-              duration: const Duration(seconds: 4),
+              duration: Duration(seconds: 4),
             ),
           );
         }
@@ -1683,7 +1642,7 @@ class _BookingScreenState extends State<BookingScreen>
             const Icon(Icons.search_rounded, color: Color(0xFF1E88E5)),
             const SizedBox(width: 12),
             Text(
-              context.translate('Search Bookings'),
+              'Search Bookings',
               style: TextStyle(
                 color: isDark ? Colors.white : const Color(0xFF212121),
               ),
@@ -1714,7 +1673,7 @@ class _BookingScreenState extends State<BookingScreen>
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: Text(
-              context.translate('Cancel'),
+              'Cancel',
               style: TextStyle(
                 color: isDark ? Colors.grey[400] : Colors.grey[600],
               ),
@@ -1726,7 +1685,7 @@ class _BookingScreenState extends State<BookingScreen>
               backgroundColor: const Color(0xFF1E88E5),
               foregroundColor: Colors.white,
             ),
-            child: Text(context.translate('Search')),
+            child: const Text('Search'),
           ),
         ],
       ),
